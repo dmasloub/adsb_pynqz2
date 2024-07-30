@@ -18,7 +18,7 @@ from src.config import (
     STANDARD_AUTOENCODER_ENCODING_DIMENSION, PERCENT, BEGIN_STEP, FREQUENCY, LEARNING_RATE
 )
 from src.data_loader import DataLoader
-from src.models.autoencoder import QuantizedAutoencoder
+from src.model.autoencoder import QuantizedAutoencoder
 from src.utils.utils import get_windows_data
 from src.utils.visualization import plot_training_history
 

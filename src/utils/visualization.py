@@ -107,3 +107,12 @@ def precision_recall_fig_plot(y_true_l, **kwargs):
     plt.ylabel('Precision')
     plt.xlabel('Recall')
     plt.show()
+    
+def print_dict(d, indent=0):
+    for key, value in d.items():
+        print('  ' * indent + str(key), end='')
+        if isinstance(value, dict):
+            print()
+            print_dict(value, indent + 1)
+        else:
+            print(':' + ' ' * (20 - len(key) - 2 * indent) + str(value))

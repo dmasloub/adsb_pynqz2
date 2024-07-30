@@ -10,7 +10,7 @@ from tsfresh.feature_extraction import MinimalFCParameters
 
 from src.config import MODEL_STANDARD_DIR, FEATURES, WINDOW_SIZE_STANDARD_AUTOENCODER, STANDARD_AUTOENCODER_ENCODING_DIMENSION
 from src.data_loader import DataLoader
-from src.models.autoencoder import QuantizedAutoencoder
+from src.model.autoencoder import QuantizedAutoencoder
 from src.utils.utils import get_windows_data
 from src.utils.evaluation import classification_report
 
