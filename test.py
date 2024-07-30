@@ -2,19 +2,24 @@ import os
 import pickle
 import numpy as np
 import pandas as pd
+import hls4ml
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 from tsfresh import extract_features
 from tsfresh.utilities.dataframe_functions import impute
 from tsfresh.feature_extraction import MinimalFCParameters
 
-from src.config import MODEL_STANDARD_DIR, FEATURES, WINDOW_SIZE_STANDARD_AUTOENCODER, STANDARD_Q_THRESHOLD, STANDARD_AUTOENCODER_ENCODING_DIMENSION
+from src.config import (
+    MODEL_STANDARD_DIR, FEATURES, WINDOW_SIZE_STANDARD_AUTOENCODER, 
+    STANDARD_Q_THRESHOLD, STANDARD_AUTOENCODER_ENCODING_DIMENSION
+)
 from src.data_loader import DataLoader
-from src.models.autoencoder import QuantizedAutoencoder
+from src.model.autoencoder import QuantizedAutoencoder
 from src.utils.utils import get_windows_data, q_verdict
 from src.utils.evaluation import classification_report
+from src.hls_converter import QKerasToHLSConverter
 
-def test_autoencoder(custom_paths=None):
+def test_autoencoder(custom_paths=None, build_hls_model=False):
     # Load test data
     data_loader = DataLoader(paths=custom_paths)
     data_dict = data_loader.load_data()
@@ -31,9 +36,11 @@ def test_autoencoder(custom_paths=None):
 
     # Define test datasets
     test_datasets = ['test_noise', 'test_landing', 'test_departing', 'test_manoeuver']
-    all_reconstruction_errors = []
+    all_reconstruction_errors_keras = []
+    all_reconstruction_errors_hls = []
     actual_labels = {}
-    predicted_labels = {}
+    predicted_labels_keras = {}
+    predicted_labels_hls = {}
 
     # Process each test dataset
     for dataset in test_datasets:
@@ -68,38 +75,57 @@ def test_autoencoder(custom_paths=None):
         # Determine input_dim from preprocessed data
         input_dim = X_test_n.shape[1]
 
-        # Load model with the correct input_dim
+        # Load and test Keras model
         autoencoder = QuantizedAutoencoder(input_dim=input_dim, encoding_dim=STANDARD_AUTOENCODER_ENCODING_DIMENSION)
         autoencoder.load(MODEL_STANDARD_DIR)
+        preds_test_keras = autoencoder.predict(X_test_n)
+        reconstruction_errors_keras = np.linalg.norm(X_test_n - preds_test_keras, axis=1) ** 2
+        all_reconstruction_errors_keras.append(reconstruction_errors_keras)
+        predicted_labels_keras[dataset] = q_verdict(reconstruction_errors_keras, mu, std, STANDARD_Q_THRESHOLD)
 
-        # Predict
-        preds_test = autoencoder.predict(X_test_n)
+        # Convert and test HLS model
+        converter = QKerasToHLSConverter(
+            model_path=MODEL_STANDARD_DIR,
+            output_dir='hls_model/hls4ml_prj',
+            build_model=build_hls_model
+        )
+        converter.convert()
 
-        # Calculate reconstruction errors
-        reconstruction_errors = np.linalg.norm(X_test_n - preds_test, axis=1) ** 2
-        all_reconstruction_errors.append(reconstruction_errors)
+        hls_model = hls4ml.model.hls_model.HLSModel(converter.hls_model.config)
+        preds_test_hls = hls_model.predict(X_test_n)
+        reconstruction_errors_hls = np.linalg.norm(X_test_n - preds_test_hls, axis=1) ** 2
+        all_reconstruction_errors_hls.append(reconstruction_errors_hls)
+        predicted_labels_hls[dataset] = q_verdict(reconstruction_errors_hls, mu, std, STANDARD_Q_THRESHOLD)
 
-        # Store actual and predicted labels
+        # Store actual labels
         actual_labels[dataset] = y_test
-        predicted_labels[dataset] = q_verdict(reconstruction_errors, mu, std, STANDARD_Q_THRESHOLD)
 
     # Calculate and print accuracy scores for each test dataset
     for dataset in test_datasets:
-        acc_score = accuracy_score(actual_labels[dataset], predicted_labels[dataset])
-        print(f"Accuracy score for {dataset}: {acc_score}")
+        acc_score_keras = accuracy_score(actual_labels[dataset], predicted_labels_keras[dataset])
+        acc_score_hls = accuracy_score(actual_labels[dataset], predicted_labels_hls[dataset])
+        print(f"Accuracy score for {dataset} (Keras): {acc_score_keras}")
+        print(f"Accuracy score for {dataset} (HLS): {acc_score_hls}")
 
     # Generate classification report
-    classification_report_df = classification_report(
+    classification_report_keras = classification_report(
         [actual_labels[dataset] for dataset in test_datasets], 
-        **{dataset: predicted_labels[dataset] for dataset in test_datasets}
+        **{dataset: predicted_labels_keras[dataset] for dataset in test_datasets}
     )
-    print(classification_report_df)
+    classification_report_hls = classification_report(
+        [actual_labels[dataset] for dataset in test_datasets], 
+        **{dataset: predicted_labels_hls[dataset] for dataset in test_datasets}
+    )
+    print("Classification Report (Keras):")
+    print(classification_report_keras)
+    print("Classification Report (HLS):")
+    print(classification_report_hls)
 
 if __name__ == "__main__":
-    # Example usage with default paths
-    test_autoencoder()
+    # Example usage with default paths and building HLS model
+    test_autoencoder(build_hls_model=True)
 
-    # Example usage with custom paths
+    # Example usage with custom paths and not building HLS model
     # custom_paths = {
     #     "train": "custom_train_path",
     #     "validation": "custom_validation_path",
@@ -108,4 +134,4 @@ if __name__ == "__main__":
     #     "test_departing": "custom_test_departing_path",
     #     "test_manoeuver": "custom_test_manoeuver_path"
     # }
-    # test_autoencoder(custom_paths=custom_paths)
+    # test_autoencoder(custom_paths=custom_paths, build_hls_model=False)
